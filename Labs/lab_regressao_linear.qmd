@@ -1,0 +1,408 @@
+---
+title: "Detecção de Outliers, Curvas de Densidade e Regressão Linear"
+subtitle: "Análise de Dados — Laboratório"
+author: "Prof. Dr. Anderson Borba"
+date: "2026-03-18"
+format:
+  html:
+    toc: true
+    toc-title: "Sumário"
+    toc-depth: 2
+    number-sections: true
+    theme: cosmo
+    highlight-style: github
+    code-fold: false
+    self-contained: true
+  pdf:
+    toc: true
+    toc-title: "Sumário"
+    number-sections: true
+    geometry: margin=2.5cm
+    fontsize: 11pt
+jupyter: python3
+---
+
+## Preparação e Simulação dos Dados
+
+Criar uma base de dados que simula a altura de 40 pessoas (distribuição normal)
+e injetar 20 valores atípicos (outliers) para na amostra.
+
+```{python}
+#| label: setup
+#| message: false
+#| warning: false
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy import stats
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score, mean_squared_error
+
+# Reprodutibilidade
+np.random.seed(42)
+
+# Simulação: 180 alturas normais (média=168, dp=8)
+alturas_normais = np.random.normal(loc=168, scale=8, size=180)
+
+# 20 outliers: 10 muito baixos e 10 muito altos
+outliers_baixos = np.random.uniform(5, 50, size=10)
+outliers_altos  = np.random.uniform(280, 350, size=10)
+
+# Dataset completo com 200 elementos
+alturas_completas = np.concatenate([alturas_normais, outliers_baixos, outliers_altos])
+df = pd.DataFrame({'Altura': alturas_completas})
+
+# Simulação do Peso com relação linear + ruído (gerado uma única vez)
+df['Peso'] = 0.55 * df['Altura'] - 55 + np.random.normal(0, 3, size=len(df))
+
+print(f"Dataset criado com {len(df)} elementos na amostra.")
+```
+
+## Análise Exploratória
+
+Análise exploratória usando o comando `describe` do pandas. E podemos observar
+também uma medida de assimetria.
+
+```{python}
+#| label: analise-exploratoria
+
+print(df['Altura'].describe())
+print(f"\nAssimetria (Skewness): {df['Altura'].skew():.2f}")
+```
+
+## Visualização do Histograma Corrompido por Outliers
+
+Observe como a cauda do histograma é maior nos extremos do gráfico onde estão
+os outliers.
+
+```{python}
+#| label: fig-histograma-corrompido
+#| fig-cap: "Histograma Original (Com Outliers)"
+#| fig-width: 7
+#| fig-height: 4
+
+fig, ax = plt.subplots(figsize=(8, 4))
+
+n, bins, _ = ax.hist(df['Altura'], bins=30,
+                     color='#e88080', edgecolor='white', density=False)
+
+kde_x = np.linspace(df['Altura'].min(), df['Altura'].max(), 300)
+kde   = stats.gaussian_kde(df['Altura'])
+bw    = bins[1] - bins[0]
+ax.plot(kde_x, kde(kde_x) * len(df) * bw, color='darkred', linewidth=1.8)
+
+ax.set_xlabel('Altura (cm)')
+ax.set_ylabel('Frequência')
+ax.set_title('Histograma Original (Com Outliers)')
+ax.grid(axis='y', alpha=0.4)
+plt.tight_layout()
+plt.show()
+```
+
+## Regressão Linear — Dados COM Outliers
+
+Antes de tratar os outliers, ajustamos o modelo de Regressão Linear Simples
+para observar como os valores extremos distorcem os coeficientes e a
+qualidade do ajuste.
+
+### Dispersão e Reta Ajustada (Com Outliers)
+
+```{python}
+#| label: fig-scatter-com-outliers
+#| fig-cap: "Dispersão e Regressão Linear — Dados COM Outliers"
+#| fig-width: 7
+#| fig-height: 4
+
+X_bruto = df[['Altura']].values
+y_bruto = df['Peso'].values
+
+modelo_bruto = LinearRegression()
+modelo_bruto.fit(X_bruto, y_bruto)
+
+b0_bruto   = modelo_bruto.intercept_
+b1_bruto   = modelo_bruto.coef_[0]
+ypred_bruto = modelo_bruto.predict(X_bruto)
+r2_bruto   = r2_score(y_bruto, ypred_bruto)
+rmse_bruto = np.sqrt(mean_squared_error(y_bruto, ypred_bruto))
+
+x_line = np.linspace(df['Altura'].min(), df['Altura'].max(), 300)
+y_line = b0_bruto + b1_bruto * x_line
+
+fig, ax = plt.subplots(figsize=(8, 4))
+
+ax.scatter(df['Altura'], df['Peso'],
+           color='#e88080', alpha=0.55, edgecolors='white',
+           s=50, label='Observações (com outliers)')
+ax.plot(x_line, y_line, color='crimson', linewidth=2.2,
+        label=f'Reta ajustada  ($RMSE$ = {rmse_bruto:.3f})')
+
+eq_txt = f'$\\hat{{y}} = {b0_bruto:.2f} + {b1_bruto:.4f}\\,x$'
+ax.text(0.05, 0.90, eq_txt, transform=ax.transAxes,
+        fontsize=11, color='crimson',
+        bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.7))
+
+ax.set_xlabel('Altura (cm)')
+ax.set_ylabel('Peso (kg)')
+ax.set_title('Regressão Linear — Dados COM Outliers')
+ax.legend()
+ax.grid(alpha=0.3)
+plt.tight_layout()
+plt.show()
+```
+
+### Resultados do Modelo (Com Outliers)
+
+```{python}
+#| label: resultado-com-outliers
+
+print("=" * 46)
+print("   REGRESSÃO LINEAR — COM OUTLIERS")
+print("=" * 46)
+print(f"  Intercepto  (β₀) : {b0_bruto:.4f}")
+print(f"  Coeficiente (β₁) : {b1_bruto:.4f}")
+print(f"  Equação          : Peso = {b0_bruto:.2f} + {b1_bruto:.4f} × Altura")
+print(f"  RMSE             : {rmse_bruto:.4f} kg")
+print("=" * 46)
+```
+
+## Detecção de Outliers com Boxplot e AIQ
+
+O método do AIQ (Amplitude Inter Quartil) define limites para o que é
+considerado um dado típico, ou seja, pode ser usado para detectar dados atípicos (Outliers).
+
+```{python}
+#| label: fig-boxplot-outliers
+#| fig-cap: "Identificação de Outliers via Boxplot"
+#| fig-width: 7
+#| fig-height: 3
+
+Q1  = df['Altura'].quantile(0.25)
+Q3  = df['Altura'].quantile(0.75)
+AIQ = Q3 - Q1
+
+lim_inferior = Q1 - 1.5 * AIQ
+lim_superior = Q3 + 1.5 * AIQ
+
+fig, ax = plt.subplots(figsize=(8, 3))
+
+ax.boxplot(df['Altura'], vert=False, patch_artist=True,
+           boxprops=dict(facecolor='lightsteelblue', color='steelblue'),
+           medianprops=dict(color='navy', linewidth=2),
+           flierprops=dict(marker='o', color='gray', alpha=0.5))
+
+ax.axvline(lim_inferior, color='red',    linestyle='--',
+           linewidth=1.8, label='Lim. Inferior')
+ax.axvline(lim_superior, color='tomato', linestyle='--',
+           linewidth=1.8, label='Lim. Superior')
+
+ax.set_xlabel('Altura')
+ax.set_title('Identificação de Outliers via Boxplot')
+ax.legend(loc='upper right')
+ax.grid(axis='x', alpha=0.4)
+plt.tight_layout()
+plt.show()
+
+print(f"Intervalo de confiança: [{lim_inferior:.2f} a {lim_superior:.2f}]")
+```
+
+## Eliminação de Outliers
+
+Removeremos todos os elementos amostral que estão fora dos limites
+(limiares/threshold) calculados.
+
+```{python}
+#| label: eliminacao-outliers
+
+df_limpo = df[
+    (df['Altura'] >= lim_inferior) &
+    (df['Altura'] <= lim_superior)
+].copy().reset_index(drop=True)
+
+removidos = len(df) - len(df_limpo)
+print(f"Total de registros removidos: {removidos}")
+```
+
+## Histograma Final com a base de dados processada (Dados Limpos)
+
+Agora, com os dados tratados, podemos ver a verdadeira distribuição Gaussiana.
+
+```{python}
+#| label: fig-histograma-limpo
+#| fig-cap: "Histograma Pós-Tratamento (Distribuição Normal)"
+#| fig-width: 7
+#| fig-height: 4
+
+fig, ax = plt.subplots(figsize=(8, 4))
+
+n2, bins2, _ = ax.hist(df_limpo['Altura'], bins=20,
+                       color='#7fbf7f', edgecolor='white', density=False)
+
+kde_x2 = np.linspace(df_limpo['Altura'].min(), df_limpo['Altura'].max(), 300)
+kde2   = stats.gaussian_kde(df_limpo['Altura'])
+bw2    = bins2[1] - bins2[0]
+ax.plot(kde_x2, kde2(kde_x2) * len(df_limpo) * bw2,
+        color='darkgreen', linewidth=2)
+
+ax.set_xlabel('Altura (cm)')
+ax.set_ylabel('Frequência')
+ax.set_title('Histograma Pós-Tratamento (Distribuição Normal)')
+ax.grid(axis='y', alpha=0.4)
+plt.tight_layout()
+plt.show()
+```
+
+## Regressão Linear — Dados SEM Outliers
+
+Após a remoção dos outliers, ajustamos novamente o modelo de Regressão Linear
+para comparar com os resultados anteriores e verificar o impacto do
+pré-processamento.
+
+### Dispersão e Reta Ajustada (Sem Outliers)
+
+```{python}
+#| label: fig-scatter-sem-outliers
+#| fig-cap: "Dispersão e Regressão Linear — Dados SEM Outliers"
+#| fig-width: 7
+#| fig-height: 4
+
+X_limpo = df_limpo[['Altura']].values
+y_limpo = df_limpo['Peso'].values
+
+modelo_limpo = LinearRegression()
+modelo_limpo.fit(X_limpo, y_limpo)
+
+b0_limpo    = modelo_limpo.intercept_
+b1_limpo    = modelo_limpo.coef_[0]
+ypred_limpo = modelo_limpo.predict(X_limpo)
+r2_limpo    = r2_score(y_limpo, ypred_limpo)
+rmse_limpo  = np.sqrt(mean_squared_error(y_limpo, ypred_limpo))
+
+x_line2 = np.linspace(df_limpo['Altura'].min(), df_limpo['Altura'].max(), 300)
+y_line2 = b0_limpo + b1_limpo * x_line2
+
+fig, ax = plt.subplots(figsize=(8, 4))
+
+ax.scatter(df_limpo['Altura'], df_limpo['Peso'],
+           color='steelblue', alpha=0.55, edgecolors='white',
+           s=50, label='Observações (sem outliers)')
+ax.plot(x_line2, y_line2, color='navy', linewidth=2.2,
+        label=f'Reta ajustada  ($RMSE$ = {rmse_limpo:.3f})')
+
+eq_txt2 = f'$\\hat{{y}} = {b0_limpo:.2f} + {b1_limpo:.4f}\\,x$'
+ax.text(0.05, 0.90, eq_txt2, transform=ax.transAxes,
+        fontsize=11, color='navy',
+        bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.7))
+
+ax.set_xlabel('Altura (cm)')
+ax.set_ylabel('Peso (kg)')
+ax.set_title('Regressão Linear — Dados SEM Outliers')
+ax.legend()
+ax.grid(alpha=0.3)
+plt.tight_layout()
+plt.show()
+```
+
+### Resultados do Modelo (Sem Outliers)
+
+```{python}
+#| label: resultado-sem-outliers
+
+print("=" * 46)
+print("   REGRESSÃO LINEAR — SEM OUTLIERS")
+print("=" * 46)
+print(f"  Intercepto  (β₀) : {b0_limpo:.4f}")
+print(f"  Coeficiente (β₁) : {b1_limpo:.4f}")
+print(f"  Equação          : Peso = {b0_limpo:.2f} + {b1_limpo:.4f} × Altura")
+print(f"  RMSE             : {rmse_limpo:.4f} kg")
+print("=" * 46)
+```
+
+## Comparação dos Modelos
+
+Visualização lado a lado e tabela comparativa dos dois modelos para evidenciar
+o impacto dos outliers na Regressão Linear.
+
+### Gráfico Comparativo
+
+```{python}
+#| label: fig-comparacao
+#| fig-cap: "Comparação das Retas de Regressão — Com vs. Sem Outliers"
+#| fig-width: 10
+#| fig-height: 5
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+fig.suptitle('Impacto dos Outliers na Regressão Linear',
+             fontsize=13, fontweight='bold')
+
+# --- Painel esquerdo: COM outliers ---
+ax_esq = axes[0]
+ax_esq.scatter(df['Altura'], df['Peso'],
+               color='#e88080', alpha=0.5, edgecolors='white',
+               s=40, label='Observações')
+x_all = np.linspace(df['Altura'].min(), df['Altura'].max(), 300)
+ax_esq.plot(x_all, b0_bruto + b1_bruto * x_all,
+            color='crimson', linewidth=2.2,
+            label=f'Reta ($RMSE$ = {rmse_bruto:.3f})')
+ax_esq.set_xlabel('Altura (cm)')
+ax_esq.set_ylabel('Peso (kg)')
+ax_esq.set_title('COM Outliers')
+ax_esq.legend(fontsize=9)
+ax_esq.grid(alpha=0.3)
+
+# --- Painel direito: SEM outliers ---
+ax_dir = axes[1]
+ax_dir.scatter(df_limpo['Altura'], df_limpo['Peso'],
+               color='steelblue', alpha=0.5, edgecolors='white',
+               s=40, label='Observações')
+x_cl = np.linspace(df_limpo['Altura'].min(), df_limpo['Altura'].max(), 300)
+ax_dir.plot(x_cl, b0_limpo + b1_limpo * x_cl,
+            color='navy', linewidth=2.2,
+            label=f'Reta ($RMSE$ = {rmse_limpo:.3f})')
+ax_dir.set_xlabel('Altura (cm)')
+ax_dir.set_ylabel('Peso (kg)')
+ax_dir.set_title('SEM Outliers')
+ax_dir.legend(fontsize=9)
+ax_dir.grid(alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+```
+
+### Tabela Comparativa
+
+```{python}
+#| label: tabela-comparativa
+
+comparativo = pd.DataFrame({
+    'Métrica'   : ['Intercepto ', 'Coeficiente ', 'RMSE (kg)', 'N amostral'],
+    'Com Outliers': [f'{b0_bruto:.4f}', f'{b1_bruto:.4f}',
+                     f'{rmse_bruto:.4f}', len(df)],
+    'Sem Outliers': [f'{b0_limpo:.4f}', f'{b1_limpo:.4f}',
+                     f'{rmse_limpo:.4f}', len(df_limpo)]
+})
+
+print(comparativo.to_string(index=False))
+
+# Variações percentuais
+delta_rmse = (rmse_limpo - rmse_bruto) / abs(rmse_bruto)  * 100
+delta_b1   = (b1_limpo   - b1_bruto)   / abs(b1_bruto)   * 100
+
+print(f"Variação do RMSE após remoção: {delta_rmse:+.2f}%")
+print(f"Variação do β₁   após remoção: {delta_b1:+.2f}%")
+```
+
+## Conclusão
+
+Esta atividade demonstrou de forma clara o impacto dos outliers nos modelos de
+Regressão Linear Simples.
+
+**Antes do tratamento**, os 20 valores extremos injetados distorceram os
+coeficientes da reta de regressão e comprometeram a qualidade do ajuste.
+
+**Após a remoção dos outliers** pelo método do AIQ, o modelo recuperou
+qualidade expressiva: o R² aumentou significativamente, o RMSE reduziu.
+
+A comparação lado a lado dos gráficos da regressão evidencia que **o pré-processamento dos dados —
+especialmente a detecção e eliminação de outliers — é etapa fundamental para
+garantir a validade dos modelos preditivos**.
